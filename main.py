@@ -88,6 +88,7 @@ def compute_similarity_llm(query, documents):
 # SBERT-based similarity
 model = SentenceTransformer('all-mpnet-base-v2')
 
+
 def compute_similarity_sbert(query, documents):
     print("Processing with SBERT...")
     query = preprocess(query)
@@ -137,7 +138,8 @@ def compare_documents():
         {
             "term": data[i]['term'],
             "description": data[i]['description'],
-            "similarity_score": score
+            "similarity_score": score,
+            "summary": summary
         }
         for i, score in top_matches
     ]
