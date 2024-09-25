@@ -3,7 +3,7 @@
   <component name="Black">
     <option name="sdkName" value="Unknown virtualenv at \\wsl.localhost\Ubuntu\home\sozan\projects\NlpTechniques\.venv" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.11 (Word2Vec)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.11.9 WSL (Ubuntu): (/home/beastslayer/Word2Vec/.venv/bin/python)" project-jdk-type="Python SDK" />
   <component name="PyCharmProfessionalAdvertiser">
     <option name="shown" value="true" />
   </component>
