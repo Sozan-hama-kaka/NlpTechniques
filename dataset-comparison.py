@@ -62,7 +62,6 @@ data = [
 # Initialize SBERT model
 sbert_model = SentenceTransformer('all-mpnet-base-v2')
 
-
 # Preprocessing function for text (common across all methods)
 def preprocess(text):
     text = text.translate(str.maketrans('', '', string.punctuation))
@@ -70,15 +69,22 @@ def preprocess(text):
     stop_words = set(stopwords.words('english'))
     return ' '.join(word for word in text.split() if word not in stop_words)
 
-
-# OpenAI embeddings function
-def get_openai_embedding(text):
-    response = openai.Embedding.create(
-        input=text,
-        model="text-embedding-ada-002"
-    )
-    return response.data[0].embedding
-
+# OpenAI embeddings function with retry logic and timeout handling
+def get_openai_embedding(text, retries=3, delay=5):
+    for attempt in range(retries):
+        try:
+            response = openai.Embedding.create(
+                input=text,
+                model="text-embedding-ada-002",
+                timeout=60  # Set timeout to 60 seconds
+            )
+            return response.data[0].embedding
+        except openai.error.Timeout as e:
+            print(f"Request timed out. Retrying in {delay} seconds... ({attempt + 1}/{retries})")
+            time.sleep(delay)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+    raise Exception("Failed to get embedding after several retries")
 
 # LLM similarity computation
 def compute_similarity_llm(query, documents):
@@ -87,7 +93,6 @@ def compute_similarity_llm(query, documents):
     document_embeddings = [get_openai_embedding(preprocess(doc['description'])) for doc in documents]
     similarities = cosine_similarity([query_embedding], document_embeddings)[0]
     return similarities
-
 
 # SBERT similarity computation
 def compute_similarity_sbert(query, documents):
@@ -98,7 +103,6 @@ def compute_similarity_sbert(query, documents):
     cosine_similarities = util.pytorch_cos_sim(query_embedding, document_embeddings)
     return cosine_similarities[0].tolist()
 
-
 # Word2Vec (TF-IDF) similarity computation
 def compute_similarity_word2vec(query, documents):
     vectorizer = TfidfVectorizer()
@@ -108,7 +112,6 @@ def compute_similarity_word2vec(query, documents):
     tfidf_matrix = vectorizer.fit_transform(docs)
     cosine_sim = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1])
     return cosine_sim.flatten()
-
 
 # Function to classify a single summary
 def classify_summary(summary, method):
@@ -128,7 +131,6 @@ def classify_summary(summary, method):
     if not top_terms:
         return 'N/A'
     return ', '.join(top_terms[:3])  # Limit to top 3 classifications
-
 
 # Function to measure time for classification and display KPIs
 def measure_kpi(df, method):
@@ -160,7 +162,6 @@ def measure_kpi(df, method):
     print(f"Average time to classify a single document/summary: {average_time:.4f} seconds")
     print(f"CPU Usage: {cpu_usage}%")
     print(f"Memory Usage: {memory_info.percent}%\n")
-
 
 # Process CSV file and generate results
 def process_csv(input_file):
@@ -195,8 +196,7 @@ def process_csv(input_file):
     df_sbert.to_csv(os.path.join(output_dir, 'sbert_result.csv'), index=False)
     df_word2vec.to_csv(os.path.join(output_dir, 'word2vec_result.csv'), index=False)
 
-
 # Run the process on the CSV file
 if __name__ == '__main__':
-    input_csv = 'dataset.csv'
+    input_csv = 'dataset.csv'  # Update this to your dataset path if necessary
     process_csv(input_csv)
