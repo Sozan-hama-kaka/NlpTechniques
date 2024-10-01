@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
 import openai
+from dotenv import load_dotenv
 import os
 import time  # For measuring time
 # Optional for resource monitoring
@@ -14,7 +15,9 @@ import psutil
 # Download NLTK stopwords if not already installed
 nltk.download('stopwords')
 
-openai.api_key = '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'
+load_dotenv()
+
+openai.api_key = os.getenv('OPENAI_KEY', 'NULL')
 
 data = [
     {
@@ -62,12 +65,14 @@ data = [
 # Initialize SBERT model
 sbert_model = SentenceTransformer('all-mpnet-base-v2')
 
+
 # Preprocessing function for text (common across all methods)
 def preprocess(text):
     text = text.translate(str.maketrans('', '', string.punctuation))
     text = text.lower()
     stop_words = set(stopwords.words('english'))
     return ' '.join(word for word in text.split() if word not in stop_words)
+
 
 # OpenAI embeddings function with retry logic and timeout handling
 def get_openai_embedding(text, retries=3, delay=5):
@@ -86,6 +91,7 @@ def get_openai_embedding(text, retries=3, delay=5):
             print(f"An error occurred: {e}")
     raise Exception("Failed to get embedding after several retries")
 
+
 # LLM similarity computation
 def compute_similarity_llm(query, documents):
     query = preprocess(query)
@@ -93,6 +99,7 @@ def compute_similarity_llm(query, documents):
     document_embeddings = [get_openai_embedding(preprocess(doc['description'])) for doc in documents]
     similarities = cosine_similarity([query_embedding], document_embeddings)[0]
     return similarities
+
 
 # SBERT similarity computation
 def compute_similarity_sbert(query, documents):
@@ -103,6 +110,7 @@ def compute_similarity_sbert(query, documents):
     cosine_similarities = util.pytorch_cos_sim(query_embedding, document_embeddings)
     return cosine_similarities[0].tolist()
 
+
 # Word2Vec (TF-IDF) similarity computation
 def compute_similarity_word2vec(query, documents):
     vectorizer = TfidfVectorizer()
@@ -112,6 +120,7 @@ def compute_similarity_word2vec(query, documents):
     tfidf_matrix = vectorizer.fit_transform(docs)
     cosine_sim = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1])
     return cosine_sim.flatten()
+
 
 # Function to classify a single summary
 def classify_summary(summary, method):
@@ -131,6 +140,7 @@ def classify_summary(summary, method):
     if not top_terms:
         return 'N/A'
     return ', '.join(top_terms[:3])  # Limit to top 3 classifications
+
 
 # Function to measure time for classification and display KPIs
 def measure_kpi(df, method):
@@ -162,6 +172,7 @@ def measure_kpi(df, method):
     print(f"Average time to classify a single document/summary: {average_time:.4f} seconds")
     print(f"CPU Usage: {cpu_usage}%")
     print(f"Memory Usage: {memory_info.percent}%\n")
+
 
 # Process CSV file and generate results
 def process_csv(input_file):
@@ -195,6 +206,7 @@ def process_csv(input_file):
     df_llm.to_csv(os.path.join(output_dir, 'llm_result.csv'), index=False)
     df_sbert.to_csv(os.path.join(output_dir, 'sbert_result.csv'), index=False)
     df_word2vec.to_csv(os.path.join(output_dir, 'word2vec_result.csv'), index=False)
+
 
 # Run the process on the CSV file
 if __name__ == '__main__':
