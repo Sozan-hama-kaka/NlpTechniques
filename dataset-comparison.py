@@ -5,12 +5,14 @@ from nltk.corpus import stopwords
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import openai
 from dotenv import load_dotenv
 import os
 import time  # For measuring time
-# Optional for resource monitoring
 import psutil
+
+from main import get_openai_embedding
 
 # Download NLTK stopwords if not already installed
 nltk.download('stopwords')
@@ -74,29 +76,42 @@ def preprocess(text):
     return ' '.join(word for word in text.split() if word not in stop_words)
 
 
-# OpenAI embeddings function with retry logic and timeout handling
-def get_openai_embedding(text, retries=3, delay=5):
+def get_openai_embeddings(texts, retries=5, delay=10, max_tokens=500):
     for attempt in range(retries):
         try:
-            response = openai.Embedding.create(
-                input=text,
+            response = openai.Embedding.create(  # Correct method call
+                input=texts,  # Pass a list of texts
                 model="text-embedding-ada-002",
+                max_tokens=max_tokens,
                 timeout=60  # Set timeout to 60 seconds
             )
-            return response.data[0].embedding
+            return [embedding['embedding'] for embedding in response['data']]
         except openai.error.Timeout as e:
             print(f"Request timed out. Retrying in {delay} seconds... ({attempt + 1}/{retries})")
             time.sleep(delay)
+        except openai.error.OpenAIError as e:
+            # Handle OpenAI API errors
+            print(f"OpenAI API error: {e}. Retrying in {delay} seconds... ({attempt + 1}/{retries})")
+            time.sleep(delay)
         except Exception as e:
-            print(f"An error occurred: {e}")
-    raise Exception("Failed to get embedding after several retries")
+            # Handle any other errors
+            print(f"An error occurred: {e}. Retrying in {delay} seconds... ({attempt + 1}/{retries})")
+            time.sleep(delay)
+    raise Exception("Failed to get embeddings after several retries")
 
 
 # LLM similarity computation
 def compute_similarity_llm(query, documents):
     query = preprocess(query)
     query_embedding = get_openai_embedding(query)
-    document_embeddings = [get_openai_embedding(preprocess(doc['description'])) for doc in documents]
+
+    # Preprocess all document descriptions
+    document_texts = [preprocess(doc['description']) for doc in documents]
+
+    # Get embeddings for all documents in one call
+    document_embeddings = get_openai_embeddings(document_texts)
+
+    # Compute cosine similarity
     similarities = cosine_similarity([query_embedding], document_embeddings)[0]
     return similarities
 
@@ -142,6 +157,20 @@ def classify_summary(summary, method):
     return ', '.join(top_terms[:3])  # Limit to top 3 classifications
 
 
+# Function to measure performance metrics
+def calculate_metrics(true_labels, predicted_labels, method):
+    accuracy = accuracy_score(true_labels, predicted_labels)
+    precision = precision_score(true_labels, predicted_labels, average='weighted', zero_division=1)
+    recall = recall_score(true_labels, predicted_labels, average='weighted', zero_division=1)
+    f1 = f1_score(true_labels, predicted_labels, average='weighted', zero_division=1)
+
+    print(f"\n{method.upper()} Metrics:")
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1-Score: {f1:.4f}\n")
+
+
 # Function to measure time for classification and display KPIs
 def measure_kpi(df, method):
     total_time = 0
@@ -175,18 +204,22 @@ def measure_kpi(df, method):
 
 
 # Process CSV file and generate results
-def process_csv(input_file):
-    # Load input CSV
+def process_csv(input_file, ground_truth_file):
+    # Load input CSV and ground truth
     df = pd.read_csv(input_file)
+    ground_truth_df = pd.read_csv(ground_truth_file)
 
     # Create output directory if not exists
     output_dir = 'output'
     os.makedirs(output_dir, exist_ok=True)
 
-    # Initialize result DataFrames
-    df_llm = df.copy()
-    df_sbert = df.copy()
-    df_word2vec = df.copy()
+    # True classifications from the ground truth file
+    true_classifications = ground_truth_df['classification'].tolist()
+
+    # Initialize predictions list for each method
+    llm_predictions = []
+    sbert_predictions = []
+    word2vec_predictions = []
 
     # Measure and display KPIs for each method
     measure_kpi(df, 'llm')
@@ -197,18 +230,25 @@ def process_csv(input_file):
     for index, row in df.iterrows():
         summary = row['Summary']
 
-        # Apply each method
-        df_llm.at[index, 'classification'] = classify_summary(summary, 'llm')
-        df_sbert.at[index, 'classification'] = classify_summary(summary, 'sbert')
-        df_word2vec.at[index, 'classification'] = classify_summary(summary, 'word2vec')
+        # Apply each method and store the result
+        llm_predictions.append(classify_summary(summary, 'llm'))
+        sbert_predictions.append(classify_summary(summary, 'sbert'))
+        word2vec_predictions.append(classify_summary(summary, 'word2vec'))
+
+    # Calculate and display metrics for each method
+    calculate_metrics(true_classifications, llm_predictions, 'llm')
+    calculate_metrics(true_classifications, sbert_predictions, 'sbert')
+    calculate_metrics(true_classifications, word2vec_predictions, 'word2vec')
 
     # Save results to CSV files
-    df_llm.to_csv(os.path.join(output_dir, 'llm_result.csv'), index=False)
-    df_sbert.to_csv(os.path.join(output_dir, 'sbert_result.csv'), index=False)
-    df_word2vec.to_csv(os.path.join(output_dir, 'word2vec_result.csv'), index=False)
+    df['llm_classification'] = llm_predictions
+    df['sbert_classification'] = sbert_predictions
+    df['word2vec_classification'] = word2vec_predictions
+    df.to_csv(os.path.join(output_dir, 'classification_results.csv'), index=False)
 
 
 # Run the process on the CSV file
 if __name__ == '__main__':
     input_csv = 'dataset.csv'  # Update this to your dataset path if necessary
-    process_csv(input_csv)
+    ground_truth_csv = 'ground_truth.csv'  # Ground truth file
+    process_csv(input_csv, ground_truth_csv)

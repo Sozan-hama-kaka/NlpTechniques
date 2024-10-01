@@ -68,7 +68,7 @@ def preprocess(text):
 
 
 def get_openai_embedding(text):
-    response = openai.embeddings.create(
+    response = openai.Embedding.create(
         input=text,
         model="text-embedding-ada-002"  # Example OpenAI embedding model
     )
