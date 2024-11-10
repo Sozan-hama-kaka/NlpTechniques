@@ -6,13 +6,22 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer, util
 from sklearn.feature_extraction.text import TfidfVectorizer
 import openai
+from gensim.models import KeyedVectors
+import numpy as np
+from dotenv import load_dotenv
+import os
 
 # Download NLTK stopwords if not already installed
 nltk.download('stopwords')
 
 app = Flask(__name__)
 
-openai.api_key = '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'
+load_dotenv()
+
+openai.api_key = os.getenv('OPENAI_KEY', 'NULL')
+
+# Load pre-trained Word2Vec model (Google News vectors)
+w2v_model = KeyedVectors.load_word2vec_format('GoogleNews-vectors-negative300.bin', binary=True)
 
 data = [
     {
@@ -70,7 +79,7 @@ def preprocess(text):
 def get_openai_embedding(text):
     response = openai.Embedding.create(
         input=text,
-        model="text-embedding-ada-002"  # Example OpenAI embedding model
+        model="text-embedding-ada-002"
     )
     return response.data[0].embedding
 
@@ -111,17 +120,31 @@ def compute_similarity_word2vec(query, documents):
     return {"method": "Result processed with Word2Vec", "similarities": cosine_sim.flatten()}
 
 
+# Word Mover's Distance (WMD)
+def compute_wmd_similarity(query, documents):
+    print("Processing with WMD...")
+    query = preprocess(query).split()
+    similarities = []
+    for doc in documents:
+        doc_preprocessed = preprocess(doc['description']).split()
+        distance = w2v_model.wmdistance(query, doc_preprocessed)
+        similarities.append(1 / (1 + distance))  # Convert distance to similarity
+    return {"method": "Result processed with WMD", "similarities": similarities}
+
+
 # API route
 @app.route('/compare', methods=['POST'])
 def compare_documents():
     summary = request.args.get('summary')
     method = request.args.get('method', '').lower()
+    measurement = 'cosine'  # Default measurement
 
     if not summary:
         return jsonify({'error': 'No summary provided'}), 400
     if method not in ['llm', 'sbert', 'word2vec']:
         return jsonify({'error': 'Invalid method provided. Choose "llm", "sbert", or "word2vec".'}), 400
 
+    # Compute similarities based on the selected method
     if method == 'llm':
         result = compute_similarity_llm(summary, data)
     elif method == 'sbert':
@@ -129,11 +152,22 @@ def compare_documents():
     else:
         result = compute_similarity_word2vec(summary, data)
 
+    # Apply chosen measurement method
     similarities = result["similarities"]
     indexed_similarities = list(enumerate(similarities))
     sorted_similarities = sorted(indexed_similarities, key=lambda x: x[1], reverse=True)
-    top_matches = sorted_similarities[:3]
 
+    # Check for semantic novelty
+    novelty_threshold = 0.8  # Adjust this threshold as needed
+    top_score = sorted_similarities[0][1]
+    if top_score < novelty_threshold:
+        return jsonify({
+            "method": result["method"],
+            "message": "Semantic Novelty detected in Document Abstract! The provided document abstract / summary cannot be classified into existing classifications."
+        })
+
+    # Get the top 3 matches if novelty is not detected
+    top_matches = sorted_similarities[:3]
     response_text = [
         {
             "term": data[i]['term'],

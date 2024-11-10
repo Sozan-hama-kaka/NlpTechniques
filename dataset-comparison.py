@@ -79,22 +79,20 @@ def preprocess(text):
 def get_openai_embeddings(texts, retries=5, delay=10, max_tokens=500):
     for attempt in range(retries):
         try:
-            response = openai.Embedding.create(  # Correct method call
-                input=texts,  # Pass a list of texts
+            response = openai.Embedding.create(
+                input=texts,
                 model="text-embedding-ada-002",
                 max_tokens=max_tokens,
-                timeout=60  # Set timeout to 60 seconds
+                timeout=60
             )
             return [embedding['embedding'] for embedding in response['data']]
         except openai.error.Timeout as e:
             print(f"Request timed out. Retrying in {delay} seconds... ({attempt + 1}/{retries})")
             time.sleep(delay)
         except openai.error.OpenAIError as e:
-            # Handle OpenAI API errors
             print(f"OpenAI API error: {e}. Retrying in {delay} seconds... ({attempt + 1}/{retries})")
             time.sleep(delay)
         except Exception as e:
-            # Handle any other errors
             print(f"An error occurred: {e}. Retrying in {delay} seconds... ({attempt + 1}/{retries})")
             time.sleep(delay)
     raise Exception("Failed to get embeddings after several retries")
@@ -104,14 +102,8 @@ def get_openai_embeddings(texts, retries=5, delay=10, max_tokens=500):
 def compute_similarity_llm(query, documents):
     query = preprocess(query)
     query_embedding = get_openai_embedding(query)
-
-    # Preprocess all document descriptions
     document_texts = [preprocess(doc['description']) for doc in documents]
-
-    # Get embeddings for all documents in one call
     document_embeddings = get_openai_embeddings(document_texts)
-
-    # Compute cosine similarity
     similarities = cosine_similarity([query_embedding], document_embeddings)[0]
     return similarities
 
